@@ -1,0 +1,40 @@
+from transformers import GPT2LMHeadModel, pipeline, set_seed
+from dataclasses import dataclass
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+
+
+@dataclass
+class GPTConfig:
+    block_size: int = 256
+    vocab_size: int = 65
+    n_layer: int = 6
+    n_head: int = 6
+    n_embd : int = 384
+
+class Block(nn.Module):
+    def __init__(self, config, layer_idx):
+        super().__init__()
+        self.attn = CausalSelfAttention(config, layer_idx)
+        self.mlp = MLP(config)
+
+    def forward(self, x, ve, cos_sin, window_size, kv_cache):
+        x = x + self.attn(norm(x), ve, cos_sin, window_size, kv_cache)
+        x = x + self.mlp(norm(x))
+        return x
+
+class GPT(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+        self.transformer = nn.ModuleDict(dict(
+            wte  = nn.Embedding(config.vocab_size, config.n_embd),
+            wpe  = nn.Embedding(config.vocab_size, config.n_embd),
+            h    = nn.ModuleList(Block(config) for _ in range(config.n_layer)),
+            ln_f = nn.LayerNorm(config.n_embd),
+        ))
+
+        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
