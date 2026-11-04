@@ -7,6 +7,7 @@ import torch.optim
 import torch.nn as nn
 from torch.nn import functional as F
 from transformers import GPT2LMHeadModel
+import time
 import tiktoken
 
 from Gpt2_from_Scratch.textFIle import DataLoaderLite
@@ -182,18 +183,22 @@ max_length = 30
 model = GPT(GPTConfig)
 model.to('cuda')
 
-train_loader = DataLoaderLite (B=4,T=32)
+train_loader = DataLoaderLite (B=5,T=1024)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
 for i in range(50):
+    t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to('cuda'), y.to('cuda')
     optimizer.zero_grad()
     logits, loss = model(x , y)
     loss.backward()
     optimizer.step()
-    print(f"step {i}, loss : {loss.item()}")
+    torch.cuda.synchronize()
+    t1 = time.time()
+    dt = (t1 - t0) * 1000
+    print(f"step {i}, loss : {loss.item()}, \t dt : {dt:.2f}ms")
 
 import sys; sys.exit(0)
 #tokens = enc.encode("Hello, I'm a language model,")
