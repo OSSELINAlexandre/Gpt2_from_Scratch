@@ -182,6 +182,7 @@ max_length = 30
 #model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig)
 model.to('cuda')
+model = torch.compile(model)
 
 train_loader = DataLoaderLite (B=4,T=1024)
 torch.set_float32_matmul_precision('high')
