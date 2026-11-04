@@ -186,7 +186,7 @@ model = torch.compile(model)
 train_loader = DataLoaderLite (B=4,T=1024)
 torch.set_float32_matmul_precision('high')
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 
 for i in range(50):
     t0 = time.time()
