@@ -183,7 +183,8 @@ max_length = 30
 model = GPT(GPTConfig)
 model.to('cuda')
 
-train_loader = DataLoaderLite (B=5,T=1024)
+train_loader = DataLoaderLite (B=4,T=1024)
+torch.set_float32_matmul_precision('high')
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
@@ -192,13 +193,15 @@ for i in range(50):
     x, y = train_loader.next_batch()
     x, y = x.to('cuda'), y.to('cuda')
     optimizer.zero_grad()
-    logits, loss = model(x , y)
+    with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        logits, loss = model(x , y)
     loss.backward()
     optimizer.step()
     torch.cuda.synchronize()
     t1 = time.time()
     dt = (t1 - t0) * 1000
-    print(f"step {i}, loss : {loss.item()}, \t dt : {dt:.2f}ms")
+    tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
+    print(f"step {i}, loss : {loss.item()}, \t dt : {dt:.2f}ms, \t tok/sec: {tokens_per_sec:.2f}")
 
 import sys; sys.exit(0)
 #tokens = enc.encode("Hello, I'm a language model,")
