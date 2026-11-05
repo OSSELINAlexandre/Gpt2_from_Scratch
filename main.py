@@ -13,6 +13,7 @@ import tiktoken
 from Gpt2_from_Scratch.textFIle import DataLoaderLite
 
 
+
 @dataclass
 class GPTConfig:
     block_size: int = 1024
@@ -197,19 +198,35 @@ model = GPT(GPTConfig)
 model.to('cuda')
 model = torch.compile(model)
 
-train_loader = DataLoaderLite (B=4,T=1024)
+
+#To implement GPT2 124M params, we neeed to have the same batch size that is mentioned in the paper
+#Therefore, we need batch of 0.5M tokens. On most GPU, it isn't possible,
+#Therefore, we need to use 'gradient accumulation'.
+
+total_batch_size = 524288
+B = 16
+T = 1024
+grad_accum_steps = total_batch_size // (B * T)
+print(f"total desired batch size : {total_batch_size}")
+print(f"=> calculated gradient accumulation steps : {grad_accum_steps}")
+
+train_loader = DataLoaderLite (B=B,T=T)
 torch.set_float32_matmul_precision('high')
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 
 for step in range(max_steps):
     t0 = time.time()
-    x, y = train_loader.next_batch()
-    x, y = x.to('cuda'), y.to('cuda')
     optimizer.zero_grad()
-    with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-        logits, loss = model(x , y)
-    loss.backward()
+    loss_accum = 0.0
+    for micro_step in range(grad_accum_steps):
+        x, y = train_loader.next_batch()
+        x, y = x.to('cuda'), y.to('cuda')
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            logits, loss = model(x , y)
+        loss = loss /grad_accum_steps
+        loss_accum += loss.detach()
+        loss.backward()
     norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     lr = get_lr(step)
     for param_group in optimizer.param_groups:
@@ -218,8 +235,9 @@ for step in range(max_steps):
     torch.cuda.synchronize()
     t1 = time.time()
     dt = (t1 - t0) * 1000
+    token_processed = train_loader.B * train_loader.T * grad_accum_steps
     tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
-    print(f"step {step}, loss : {loss.item()}, norm : {norm:.4f}, \t dt : {dt:.2f}ms, \t tok/sec: {tokens_per_sec:.2f}")
+    print(f"step {step}, loss : {loss_accum.item()}, norm : {norm:.4f}, \t dt : {dt:.2f}ms, \t tok/sec: {tokens_per_sec:.2f}, \t token processed : {token_processed:.4d}")
 
 import sys; sys.exit(0)
 #tokens = enc.encode("Hello, I'm a language model,")
