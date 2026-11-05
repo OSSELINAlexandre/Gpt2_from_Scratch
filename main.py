@@ -177,6 +177,20 @@ class GPT(nn.Module):
 
 num_return_sequences = 5
 max_length = 30
+max_steps = 50
+max_lr = 6e-4
+min_lr = max_lr * 0.1
+warmup_steps = 10
+
+def get_lr(it):
+    if it < warmup_steps:
+        return max_lr * (it + 1) / warmup_steps
+    if it > max_steps:
+        return min_lr
+
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return min_lr + coeff  * (max_lr - min_lr)
 
 #model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig)
@@ -188,7 +202,7 @@ torch.set_float32_matmul_precision('high')
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
 
-for i in range(50):
+for step in range(max_steps):
     t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to('cuda'), y.to('cuda')
@@ -196,12 +210,16 @@ for i in range(50):
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         logits, loss = model(x , y)
     loss.backward()
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
     optimizer.step()
     torch.cuda.synchronize()
     t1 = time.time()
     dt = (t1 - t0) * 1000
     tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
-    print(f"step {i}, loss : {loss.item()}, \t dt : {dt:.2f}ms, \t tok/sec: {tokens_per_sec:.2f}")
+    print(f"step {step}, loss : {loss.item()}, norm : {norm:.4f}, \t dt : {dt:.2f}ms, \t tok/sec: {tokens_per_sec:.2f}")
 
 import sys; sys.exit(0)
 #tokens = enc.encode("Hello, I'm a language model,")
